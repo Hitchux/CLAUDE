@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     DEX-Manager-GUI.ps1 - Interface graphique de gestion DEX pour parc de serveurs Windows.
@@ -91,7 +91,7 @@ function Log-Msg {
     param([string]$Msg, [string]$Level="INFO")
     $ts    = Get-Date -Format "HH:mm:ss"
     $color = switch ($Level) {
-        "OK"    { "►" } "ERR"  { "✖" } "WARN" { "⚠" } default { "·" }
+        "OK"    { ">>" } "ERR"  { "!!" } "WARN" { "!>" } default { "--" }
     }
     $line = "[$ts] $color $Msg"
     $script:txtLog.AppendText("$line`r`n")
@@ -230,15 +230,15 @@ function Deploy-And-Execute {
                     Update-VMRow $srv "OK"
                     $row = $script:lvVMs.Items | Where-Object { $_.Text -eq $srv }
                     if ($row) { $row.SubItems[2].Text = $res.RemoteFile }
-                    Log-Msg "[$srv] ✔ DEX généré : $($res.RemoteFile)" "OK"
+                    Log-Msg "[$srv] DEX genere : $($res.RemoteFile)" "OK"
                 } elseif ($res.Status -eq "WARN") {
                     $script:vmData[$srv]['Status'] = "WARN"
                     Update-VMRow $srv "WARN"
-                    Log-Msg "[$srv] ⚠ $($res.Error)" "WARN"
+                    Log-Msg "[$srv] AVERT. $($res.Error)" "WARN"
                 } else {
                     $script:vmData[$srv]['Status'] = "ERROR"
                     Update-VMRow $srv "ERROR"
-                    Log-Msg "[$srv] ✖ $($res.Error)" "ERR"
+                    Log-Msg "[$srv] ERREUR $($res.Error)" "ERR"
                 }
             }
         }
@@ -337,12 +337,12 @@ function Collect-Reports {
                 Update-VMRow $srv "COLLECTED"
                 $row = $script:lvVMs.Items | Where-Object { $_.Text -eq $srv }
                 if ($row) { $row.SubItems[3].Text = $res.LocalFile }
-                Log-Msg "[$srv] ✔ Collecté → $($res.LocalFile)" "OK"
+                Log-Msg "[$srv] Collecte OK --> $($res.LocalFile)" "OK"
             } else {
                 $err = if ($res) { $res.Error } else { "Résultat vide" }
                 $script:vmData[$srv]['Status'] = "ERROR"
                 Update-VMRow $srv "ERROR"
-                Log-Msg "[$srv] ✖ $err" "ERR"
+                Log-Msg "[$srv] ERREUR $err" "ERR"
             }
         }
 
@@ -362,7 +362,7 @@ function Collect-Reports {
 #region ── Construction du formulaire principal ───────────────────────────────
 
 $form                  = New-Object System.Windows.Forms.Form
-$form.Text             = "DEX Manager — Gestion du parc serveurs Windows"
+$form.Text             = "DEX Manager - Gestion du parc serveurs Windows"
 $form.Size             = New-Object System.Drawing.Size(1100, 780)
 $form.StartPosition    = "CenterScreen"
 $form.BackColor        = $C_BG
@@ -377,9 +377,9 @@ $pnlHeader.Height    = 60
 $pnlHeader.BackColor = $C_HEADER
 $form.Controls.Add($pnlHeader)
 
-$lblTitle = New-Label "⚙  DEX Manager" 15 8 500 26 ([System.Drawing.Color]::White) 14 Bold
+$lblTitle = New-Label "[*] DEX Manager" 15 8 500 26 ([System.Drawing.Color]::White) 14 Bold
 $pnlHeader.Controls.Add($lblTitle)
-$lblSub = New-Label "Génération automatique de Documents d'Exploitation — Windows Server 2016+" 15 36 700 18 ([System.Drawing.Color]::FromArgb(180,210,240)) 9
+$lblSub = New-Label "Generation automatique de Documents d'Exploitation - Windows Server 2016+" 15 36 700 18 ([System.Drawing.Color]::FromArgb(180,210,240)) 9
 $pnlHeader.Controls.Add($lblSub)
 
 # ── Panneau gauche : configuration ──────────────────────────────────────────
@@ -521,11 +521,11 @@ $pnlCenter.BackColor = $C_BG
 $form.Controls.Add($pnlCenter)
 
 # Toolbar boutons
-$script:btnReload = New-Button "⟳  Recharger"   10  8 130 34 $C_BTN_RELOAD
-$script:btnDeploy = New-Button "▶  Déployer"    150  8 130 34 $C_BTN_DEPLOY
-$script:btnCollect= New-Button "⬇  Collecter"   290  8 130 34 $C_BTN_COLLECT
-$script:btnOpen   = New-Button "🌐  Ouvrir DEX"  430  8 130 34 $C_BTN_OPEN
-$script:btnClear  = New-Button "✖  Effacer log"  660  8 130 34 $C_BTN_CLEAR
+$script:btnReload = New-Button "[R] Recharger"   10  8 130 34 $C_BTN_RELOAD
+$script:btnDeploy = New-Button "[>] Deployer"    150  8 130 34 $C_BTN_DEPLOY
+$script:btnCollect= New-Button "[v] Collecter"   290  8 130 34 $C_BTN_COLLECT
+$script:btnOpen   = New-Button "[W] Ouvrir DEX"  430  8 130 34 $C_BTN_OPEN
+$script:btnClear  = New-Button "[X] Effacer log" 660  8 130 34 $C_BTN_CLEAR
 $pnlCenter.Controls.AddRange(@($script:btnReload, $script:btnDeploy, $script:btnCollect,
                                 $script:btnOpen,  $script:btnClear))
 
