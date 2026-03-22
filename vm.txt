@@ -1,0 +1,17 @@
+# Liste des serveurs pour génération DEX
+# Format : un nom de serveur ou adresse IP par ligne
+# Les lignes commençant par # sont ignorées
+# Les lignes vides sont ignorées
+
+# ── Production ──────────────────────────
+ATO-PA1WPUIR01
+ATO-PA1WPUIR02
+ATO-PA1WPUIR03
+
+# ── Pré-production ───────────────────────
+ATO-PA1WPUPP01
+ATO-PA1WPUPP02
+
+# ── Infrastructure ───────────────────────
+# ATO-PA1WINFRA01   # commenté = ignoré
+10.156.36.168
