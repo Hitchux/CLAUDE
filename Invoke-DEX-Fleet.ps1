@@ -75,7 +75,15 @@ param(
     [int]         $DaysToAnalyzeReboots = 90,
     [int]         $ThrottleLimit        = 5,
     [switch]      $UseSSL,
-    [switch]      $SkipCACheck
+    [switch]      $SkipCACheck,
+
+    # ── Email via Power Automate Flow (contournement DLP) ─────────────────────
+    # Prérequis : créer un Flow avec déclencheur HTTP + action "Envoyer un email (V2)"
+    # Voir Send-DEXReport.ps1 pour le schéma JSON attendu par le déclencheur.
+    [switch]      $SendEmail,
+    [string]      $FlowWebhookUrl      = "",
+    [string[]]    $EmailTo             = @(),
+    [string]      $EmailCc             = ""
 )
 
 Set-StrictMode -Version Latest
@@ -305,5 +313,66 @@ $results | Select-Object Server, Status, Duration, File, Error |
     Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8 -Delimiter ";"
 Write-Host "  Rapport CSV : $csvPath" -ForegroundColor DarkCyan
 Write-Host ""
+
+#endregion
+
+#region ── Envoi email via Power Automate (optionnel, contournement DLP) ───────
+
+if ($SendEmail) {
+    if ([string]::IsNullOrWhiteSpace($FlowWebhookUrl)) {
+        Write-Warning "[-SendEmail] spécifié mais -FlowWebhookUrl est vide. Envoi ignoré."
+    } elseif ($EmailTo.Count -eq 0) {
+        Write-Warning "[-SendEmail] spécifié mais -EmailTo est vide. Envoi ignoré."
+    } else {
+        # Dot-sourcer Send-DEXReport.ps1 pour obtenir Send-DEXViaFlow
+        $sendScript = Join-Path (Split-Path $ScriptPath -Parent) "Send-DEXReport.ps1"
+        if (-not (Test-Path $sendScript)) {
+            Write-Warning "Send-DEXReport.ps1 introuvable dans : $(Split-Path $ScriptPath -Parent)"
+            Write-Warning "Placez Send-DEXReport.ps1 dans le même dossier que Generate-DEX.ps1."
+        } else {
+            . $sendScript
+
+            Write-Host ""
+            Write-Host "══════════════════════════════════════════════════" -ForegroundColor Cyan
+            Write-Host "  ENVOI DES RAPPORTS PAR EMAIL (Power Automate)"   -ForegroundColor Cyan
+            Write-Host "══════════════════════════════════════════════════" -ForegroundColor Cyan
+            Write-Host "  Destinataires : $($EmailTo -join ' ; ')"
+            if ($EmailCc) { Write-Host "  CC            : $EmailCc" }
+            Write-Host ""
+
+            $mailSent = 0; $mailErrors = 0
+
+            foreach ($r in $ok) {
+                if (-not $r.File -or -not (Test-Path $r.File)) {
+                    Write-Warning "  [$($r.Server)] Fichier HTML introuvable, email ignoré."
+                    $mailErrors++
+                    continue
+                }
+
+                Write-Host "  --> Envoi pour $($r.Server)..." -NoNewline
+
+                $res = Send-DEXViaFlow `
+                    -WebhookUrl     $FlowWebhookUrl `
+                    -To             $EmailTo `
+                    -Cc             $EmailCc `
+                    -AttachmentPath $r.File `
+                    -ServerName     $r.Server
+
+                if ($res.Success) {
+                    Write-Host " OK" -ForegroundColor Green
+                    $mailSent++
+                } else {
+                    Write-Host " ERREUR : $($res.Error)" -ForegroundColor Red
+                    $mailErrors++
+                }
+            }
+
+            Write-Host ""
+            Write-Host ("  Emails envoyés : {0} / Erreurs : {1}" -f $mailSent, $mailErrors) `
+                -ForegroundColor $(if ($mailErrors -eq 0) { "Green" } else { "Yellow" })
+            Write-Host ""
+        }
+    }
+}
 
 #endregion

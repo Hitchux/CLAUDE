@@ -39,6 +39,7 @@ $C_BTN_COLLECT = [System.Drawing.Color]::FromArgb(40, 167,  69)
 $C_BTN_OPEN    = [System.Drawing.Color]::FromArgb(255, 193,   7)
 $C_BTN_CLEAR   = [System.Drawing.Color]::FromArgb(220,  53,  69)
 $C_BTN_RELOAD  = [System.Drawing.Color]::FromArgb(108, 117, 125)
+$C_BTN_EMAIL   = [System.Drawing.Color]::FromArgb(111,  66, 193)   # violet — envoi Power Automate
 
 # Statuts VM
 $STATUS = @{
@@ -357,6 +358,95 @@ function Collect-Reports {
     $script:btnCollect.Enabled = $true
 }
 
+function Send-EmailReports {
+    param([string[]]$Servers)
+
+    $webhookUrl = $script:txtFlowUrl.Text.Trim()
+    $toRaw      = $script:txtEmailTo.Text.Trim()
+    $cc         = $script:txtEmailCc.Text.Trim()
+    $withAttach = $script:chkAttach.Checked
+
+    if ([string]::IsNullOrWhiteSpace($webhookUrl)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Veuillez saisir l'URL du Webhook Power Automate dans le champ 'Webhook URL Flow'.",
+            "Configuration manquante", "OK", "Warning") | Out-Null
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($toRaw)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Veuillez saisir au moins un destinataire dans le champ 'Destinataires'.",
+            "Configuration manquante", "OK", "Warning") | Out-Null
+        return
+    }
+
+    # Charger Send-DEXViaFlow depuis Send-DEXReport.ps1
+    $sendScript = Join-Path $SCRIPT_DIR "Send-DEXReport.ps1"
+    if (-not (Test-Path $sendScript)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Send-DEXReport.ps1 introuvable dans :`n$SCRIPT_DIR`n`nCe script est requis pour l'envoi email.",
+            "Script manquant", "OK", "Error") | Out-Null
+        return
+    }
+    . $sendScript
+
+    $toList = $toRaw -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+
+    $script:btnSendEmail.Enabled  = $false
+    $script:btnDeploy.Enabled     = $false
+    $script:btnCollect.Enabled    = $false
+    $script:lblStatus.Text        = "Envoi des emails en cours..."
+    $script:pbStatus.Visible      = $true
+    [System.Windows.Forms.Application]::DoEvents()
+
+    $sent = 0; $errors = 0
+
+    foreach ($srv in $Servers) {
+        $status = $script:vmData[$srv]['Status']
+        if ($status -notin @("COLLECTED", "OK")) {
+            Log-Msg "[$srv] Ignoré — statut '$status' (rapport non collecté)" "WARN"
+            continue
+        }
+
+        # Résoudre le fichier local
+        $localFile = $script:vmData[$srv]['LocalFile']
+        if (-not $localFile -or -not (Test-Path $localFile)) {
+            $found = Get-ChildItem $script:txtOutput.Text -Filter "$srv-DEX-Report-*.html" `
+                         -ErrorAction SilentlyContinue |
+                     Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $localFile = if ($found) { $found.FullName } else { "" }
+        }
+
+        $attachPath = if ($withAttach -and $localFile -and (Test-Path $localFile)) {
+            $localFile
+        } else { "" }
+
+        Log-Msg "[$srv] Envoi vers $($toList -join ', ')$(if ($cc) { " (CC: $cc)" })..."
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $res = Send-DEXViaFlow `
+            -WebhookUrl     $webhookUrl `
+            -To             $toList `
+            -Cc             $cc `
+            -AttachmentPath $attachPath `
+            -ServerName     $srv
+
+        if ($res.Success) {
+            Log-Msg "[$srv] Email envoyé avec succès via Power Automate." "OK"
+            $sent++
+        } else {
+            Log-Msg "[$srv] Erreur envoi email : $($res.Error)" "ERR"
+            $errors++
+        }
+    }
+
+    $script:btnSendEmail.Enabled  = $true
+    $script:btnDeploy.Enabled     = $true
+    $script:btnCollect.Enabled    = $true
+    $script:pbStatus.Visible      = $false
+    $script:lblStatus.Text        = "Emails : $sent envoyé(s), $errors erreur(s)"
+    Log-Msg "Envoi terminé — $sent réussi(s), $errors erreur(s)." "OK"
+}
+
 #endregion
 
 #region ── Construction du formulaire principal ───────────────────────────────
@@ -388,6 +478,7 @@ $pnlLeft.Location  = New-Object System.Drawing.Point(0, 60)
 $pnlLeft.Size      = New-Object System.Drawing.Size(260, 680)
 $pnlLeft.BackColor = $C_PANEL
 $pnlLeft.BorderStyle = "FixedSingle"
+$pnlLeft.AutoScroll  = $true
 $form.Controls.Add($pnlLeft)
 
 $y = 10
@@ -512,6 +603,57 @@ $btnBrowseOut.Text      = "..."
 $btnBrowseOut.FlatStyle = "Flat"
 $btnBrowseOut.BackColor = [System.Drawing.Color]::FromArgb(220,220,220)
 $pnlLeft.Controls.Add($btnBrowseOut)
+
+# ── Section Email via Power Automate (contournement DLP) ─────────────────────
+$y += 14
+
+$sepEmail = New-Object System.Windows.Forms.Label
+$sepEmail.BorderStyle = "Fixed3D"
+$sepEmail.Location    = New-Object System.Drawing.Point(10, $y)
+$sepEmail.Size        = New-Object System.Drawing.Size(240, 2)
+$pnlLeft.Controls.Add($sepEmail)
+$y += 10
+
+$pnlLeft.Controls.Add((New-Label "EMAIL (Power Automate)" 10 $y 230 20 $C_ACCENT 8 Bold))
+$y += 26
+
+$pnlLeft.Controls.Add((New-Label "Webhook URL Flow :" 10 $y 220 18 ([System.Drawing.Color]::FromArgb(80,80,80))))
+$y += 18
+$script:txtFlowUrl = New-Object System.Windows.Forms.TextBox
+$script:txtFlowUrl.Location        = New-Object System.Drawing.Point(10, $y)
+$script:txtFlowUrl.Size            = New-Object System.Drawing.Size(240, 22)
+$script:txtFlowUrl.PlaceholderText = "https://prod-xx.logic.azure.com/..."
+$pnlLeft.Controls.Add($script:txtFlowUrl)
+$y += 28
+
+$pnlLeft.Controls.Add((New-Label "Destinataires (sep. ';') :" 10 $y 220 18 ([System.Drawing.Color]::FromArgb(80,80,80))))
+$y += 18
+$script:txtEmailTo = New-Object System.Windows.Forms.TextBox
+$script:txtEmailTo.Location        = New-Object System.Drawing.Point(10, $y)
+$script:txtEmailTo.Size            = New-Object System.Drawing.Size(240, 22)
+$script:txtEmailTo.PlaceholderText = "user1@co.com;user2@co.com"
+$pnlLeft.Controls.Add($script:txtEmailTo)
+$y += 28
+
+$pnlLeft.Controls.Add((New-Label "CC (optionnel) :" 10 $y 220 18 ([System.Drawing.Color]::FromArgb(80,80,80))))
+$y += 18
+$script:txtEmailCc = New-Object System.Windows.Forms.TextBox
+$script:txtEmailCc.Location        = New-Object System.Drawing.Point(10, $y)
+$script:txtEmailCc.Size            = New-Object System.Drawing.Size(240, 22)
+$script:txtEmailCc.PlaceholderText = "manager@co.com"
+$pnlLeft.Controls.Add($script:txtEmailCc)
+$y += 28
+
+$script:chkAttach = New-Object System.Windows.Forms.CheckBox
+$script:chkAttach.Text     = "Joindre le rapport HTML"
+$script:chkAttach.Location = New-Object System.Drawing.Point(10, $y)
+$script:chkAttach.Size     = New-Object System.Drawing.Size(240, 22)
+$script:chkAttach.Checked  = $true
+$pnlLeft.Controls.Add($script:chkAttach)
+$y += 28
+
+$script:btnSendEmail = New-Button "[M] Envoyer Email" 10 $y 240 34 $C_BTN_EMAIL
+$pnlLeft.Controls.Add($script:btnSendEmail)
 
 # ── Zone centrale : liste des VMs ────────────────────────────────────────────
 $pnlCenter = New-Object System.Windows.Forms.Panel
@@ -696,6 +838,19 @@ $script:btnOpen.Add_Click({
 # Double-clic sur une VM : ouvre le rapport si disponible
 $script:lvVMs.Add_DoubleClick({
     $script:btnOpen.PerformClick()
+})
+
+# Envoyer les rapports par email via Power Automate Flow
+$script:btnSendEmail.Add_Click({
+    $selected = $script:lvVMs.SelectedItems
+    $targets  = if ($selected.Count -gt 0) {
+        $selected | ForEach-Object { $_.Text }
+    } else {
+        $script:lvVMs.Items | ForEach-Object { $_.Text }
+    }
+    if ($targets.Count -eq 0) { Log-Msg "Aucun serveur dans la liste." "WARN"; return }
+
+    Send-EmailReports -Servers $targets
 })
 
 # Effacer le log
